@@ -52,7 +52,12 @@ let player = {
   y: WORLD_H - 200,
   r: 22,
   blobT: 0,
+  speed: PLAYER_SPEED,
   direction: { x: 0, y: -1 },
+  facing: "up",
+  isMoving: false,
+  currentFrame: 0,
+  frameTimer: 0,
   shootTimer: 0,
   health: 5,
   maxHealth: 5,
@@ -77,6 +82,22 @@ let enemies = [];
 // ------------------------------------------------------------
 let obstacleData;
 let obstacles = [];
+let characterSheet = null;
+
+const SPRITE = {
+  frameWidth: 230,
+  frameHeight: 224,
+  numFrames: 3,
+  animSpeed: 10,
+  scale: 0.4,
+  rows: { down: 0, up: 3, right: 2, left: 1 },
+  offsets: {
+    down: { x: 0, y: 0 },
+    up: { x: 0, y: 0 },
+    right: { x: 0, y: 0 },
+    left: { x: 0, y: 0 },
+  },
+};
 
 // ------------------------------------------------------------
 // WAVE SYSTEM
@@ -108,7 +129,7 @@ let bgShapes = [];
 // ------------------------------------------------------------
 const MAP_W = 120; // minimap width in pixels
 const MAP_H = 120; // minimap height in pixels
-const MAP_X = 16;  // screen position — bottom left
+const MAP_X = 16; // screen position — bottom left
 const MAP_Y_OFFSET = 16; // offset from bottom of screen
 
 // ------------------------------------------------------------
@@ -136,9 +157,20 @@ let gameState = STATE_PLAY;
 // ============================================================
 // preload()
 // ============================================================
+function preloadCharacter(path) {
+  characterSheet = loadImage(
+    path,
+    () => {},
+    () => {
+      characterSheet = null;
+    },
+  );
+}
+
 function preload() {
-  enemyData    = loadJSON("data/enemies.json");
+  enemyData = loadJSON("data/enemies.json");
   obstacleData = loadJSON("data/obstacles.json");
+  preloadCharacter("assets/images/player.png");
 
   // Uncomment to load sounds:
   // shootSound     = loadSound("assets/sounds/shoot.wav");
@@ -201,6 +233,7 @@ function draw() {
 
   if (gameState === STATE_PLAY) {
     handleInput();
+    animateSprite();
     applyBounce();
     updateBullets();
     updateEnemies();
@@ -214,9 +247,9 @@ function draw() {
     drawEnemies();
     drawBullets();
     drawPlayer();
-
   } else if (gameState === STATE_BOSS) {
     handleInput();
+    animateSprite();
     applyBounce();
     updateBullets();
     updateBoss();
@@ -237,7 +270,7 @@ function draw() {
   drawMinimap();
 
   if (gameState === STATE_BOSS) drawBossHUD();
-  if (gameState === STATE_WIN)  drawWinScreen();
+  if (gameState === STATE_WIN) drawWinScreen();
   if (gameState === STATE_OVER) drawGameOver();
 }
 
@@ -268,9 +301,12 @@ function drawObstacles() {
 
     // Skip if off screen
     if (
-      o.x + o.size < camX || o.x - o.size > camX + width ||
-      o.y + o.size < camY || o.y - o.size > camY + height
-    ) continue;
+      o.x + o.size < camX ||
+      o.x - o.size > camX + width ||
+      o.y + o.size < camY ||
+      o.y - o.size > camY + height
+    )
+      continue;
 
     let x = o.x - o.size / 2;
     let y = o.y - o.size / 2;
@@ -331,12 +367,12 @@ function checkObstaclePlayerCollision() {
 
     if (d < player.r) {
       player.health--;
-      player.invincible      = true;
+      player.invincible = true;
       player.invincibleTimer = INVINCIBLE_FRAMES;
 
       // Bounce direction — away from obstacle centre
-      let dx  = player.x - o.x;
-      let dy  = player.y - o.y;
+      let dx = player.x - o.x;
+      let dy = player.y - o.y;
       let len = dist(0, 0, dx, dy);
       if (len > 0) {
         player.bounceVX = (dx / len) * 8;
@@ -382,9 +418,12 @@ function drawBackground() {
 
     // Skip shapes far from the camera view
     if (
-      s.x < camX - s.size || s.x > camX + width + s.size ||
-      s.y < camY - s.size || s.y > camY + height + s.size
-    ) continue;
+      s.x < camX - s.size ||
+      s.x > camX + width + s.size ||
+      s.y < camY - s.size ||
+      s.y > camY + height + s.size
+    )
+      continue;
 
     fill(s.r, s.g, s.b, 160);
 
@@ -418,7 +457,11 @@ function drawBossZone() {
   rect(0, 0, WORLD_W, BOSS_ZONE_Y);
 
   // Dashed boundary line
-  stroke(gameState === STATE_BOSS ? color(255, 80, 80, 100) : color(255, 150, 30, 60));
+  stroke(
+    gameState === STATE_BOSS
+      ? color(255, 80, 80, 100)
+      : color(255, 150, 30, 60),
+  );
   strokeWeight(2);
   drawingContext.setLineDash([10, 8]);
   line(0, BOSS_ZONE_Y, WORLD_W, BOSS_ZONE_Y);
@@ -433,10 +476,32 @@ function drawBossZone() {
 // Spacebar fires in the current facing direction.
 // ------------------------------------------------------------
 function handleInput() {
-  if (keyIsDown(87)) { player.y -= PLAYER_SPEED; player.direction = { x: 0,  y: -1 }; }
-  if (keyIsDown(83)) { player.y += PLAYER_SPEED; player.direction = { x: 0,  y:  1 }; }
-  if (keyIsDown(65)) { player.x -= PLAYER_SPEED; player.direction = { x: -1, y:  0 }; }
-  if (keyIsDown(68)) { player.x += PLAYER_SPEED; player.direction = { x:  1, y:  0 }; }
+  player.isMoving = false;
+
+  if (keyIsDown(87)) {
+    player.y -= player.speed;
+    player.direction = { x: 0, y: -1 };
+    player.facing = "up";
+    player.isMoving = true;
+  }
+  if (keyIsDown(83)) {
+    player.y += player.speed;
+    player.direction = { x: 0, y: 1 };
+    player.facing = "down";
+    player.isMoving = true;
+  }
+  if (keyIsDown(65)) {
+    player.x -= player.speed;
+    player.direction = { x: -1, y: 0 };
+    player.facing = "left";
+    player.isMoving = true;
+  }
+  if (keyIsDown(68)) {
+    player.x += player.speed;
+    player.direction = { x: 1, y: 0 };
+    player.facing = "right";
+    player.isMoving = true;
+  }
 
   // Keep player inside world bounds
   player.x = constrain(player.x, player.r, WORLD_W - player.r);
@@ -446,14 +511,53 @@ function handleInput() {
 
   if (keyIsDown(32) && player.shootTimer === 0) {
     bullets.push({
-      x:  player.x + player.direction.x * (player.r + 4),
-      y:  player.y + player.direction.y * (player.r + 4),
+      x: player.x + player.direction.x * (player.r + 4),
+      y: player.y + player.direction.y * (player.r + 4),
       vx: player.direction.x * BULLET_SPEED,
       vy: player.direction.y * BULLET_SPEED,
     });
     player.shootTimer = SHOOT_COOLDOWN;
     // shootSound.play();
   }
+}
+
+function animateSprite() {
+  if (!characterSheet) return;
+
+  if (player.isMoving) {
+    player.frameTimer++;
+    if (player.frameTimer >= SPRITE.animSpeed) {
+      player.frameTimer = 0;
+      player.currentFrame = (player.currentFrame + 1) % SPRITE.numFrames;
+    }
+  } else {
+    player.currentFrame = 0;
+    player.frameTimer = 0;
+  }
+}
+
+function drawCharacter() {
+  if (!characterSheet) return;
+
+  let row = SPRITE.rows[player.facing];
+  let offset = SPRITE.offsets[player.facing];
+  let sx = player.currentFrame * SPRITE.frameWidth + offset.x;
+  let sy = row * SPRITE.frameHeight + offset.y;
+  let dw = SPRITE.frameWidth * SPRITE.scale;
+  let dh = SPRITE.frameHeight * SPRITE.scale;
+
+  imageMode(CENTER);
+  image(
+    characterSheet,
+    player.x,
+    player.y,
+    dw,
+    dh,
+    sx,
+    sy,
+    SPRITE.frameWidth,
+    SPRITE.frameHeight,
+  );
 }
 
 // ------------------------------------------------------------
@@ -467,8 +571,10 @@ function updateBullets() {
     bullets[i].y += bullets[i].vy;
 
     if (
-      bullets[i].x < 0 || bullets[i].x > WORLD_W ||
-      bullets[i].y < 0 || bullets[i].y > WORLD_H
+      bullets[i].x < 0 ||
+      bullets[i].x > WORLD_W ||
+      bullets[i].y < 0 ||
+      bullets[i].y > WORLD_H
     ) {
       bullets.splice(i, 1);
     }
@@ -488,9 +594,9 @@ function checkWaveSpawns() {
     for (let i = 0; i < wave.enemies.length; i++) {
       let data = wave.enemies[i];
       enemies.push({
-        x:     random(100, WORLD_W - 100),
-        y:     random(BOSS_ZONE_Y + 50, BOSS_ZONE_Y + 300),
-        r:     20,
+        x: random(100, WORLD_W - 100),
+        y: random(BOSS_ZONE_Y + 50, BOSS_ZONE_Y + 300),
+        r: 20,
         speed: data.speed,
         blobT: random(100),
       });
@@ -517,19 +623,19 @@ function checkBossZone() {
 // ------------------------------------------------------------
 function spawnBoss() {
   boss = {
-    x:           WORLD_W / 2,
-    y:           bossData.retreatY,
-    r:           bossData.r,
-    health:      bossData.health,
-    maxHealth:   bossData.health,
-    blobT:       0,
-    state:       "pausing",
-    pauseTimer:  bossData.chargePause,
+    x: WORLD_W / 2,
+    y: bossData.retreatY,
+    r: bossData.r,
+    health: bossData.health,
+    maxHealth: bossData.health,
+    blobT: 0,
+    state: "pausing",
+    pauseTimer: bossData.chargePause,
     chargeSpeed: bossData.chargeSpeed,
     retreatSpeed: bossData.retreatSpeed,
-    retreatY:    bossData.retreatY,
-    chargeVX:    0,
-    chargeVY:    0,
+    retreatY: bossData.retreatY,
+    chargeVX: 0,
+    chargeVY: 0,
   };
 
   enemies = [];
@@ -545,10 +651,10 @@ function spawnBoss() {
 // ------------------------------------------------------------
 function updateEnemies() {
   for (let i = 0; i < enemies.length; i++) {
-    let e  = enemies[i];
+    let e = enemies[i];
     let dx = player.x - e.x;
     let dy = player.y - e.y;
-    let d  = dist(e.x, e.y, player.x, player.y);
+    let d = dist(e.x, e.y, player.x, player.y);
 
     if (d > 0) {
       e.x += (dx / d) * e.speed;
@@ -570,36 +676,34 @@ function updateBoss() {
     if (boss.pauseTimer <= 0) {
       let dx = player.x - boss.x;
       let dy = player.y - boss.y;
-      let d  = dist(boss.x, boss.y, player.x, player.y);
+      let d = dist(boss.x, boss.y, player.x, player.y);
       boss.chargeVX = (dx / d) * boss.chargeSpeed;
       boss.chargeVY = (dy / d) * boss.chargeSpeed;
-      boss.state    = "charging";
+      boss.state = "charging";
     }
-
   } else if (boss.state === "charging") {
     boss.x += boss.chargeVX;
     boss.y += boss.chargeVY;
 
-    let pastPlayer = dist(boss.x, boss.y, player.x, player.y) > 200 &&
-                     boss.y > player.y;
-    let offWorld   = boss.x < 0 || boss.x > WORLD_W ||
-                     boss.y < 0 || boss.y > WORLD_H;
+    let pastPlayer =
+      dist(boss.x, boss.y, player.x, player.y) > 200 && boss.y > player.y;
+    let offWorld =
+      boss.x < 0 || boss.x > WORLD_W || boss.y < 0 || boss.y > WORLD_H;
 
     if (pastPlayer || offWorld) {
       boss.state = "retreating";
     }
-
   } else if (boss.state === "retreating") {
     let targetX = WORLD_W / 2;
     let targetY = boss.retreatY;
-    let dx      = targetX - boss.x;
-    let dy      = targetY - boss.y;
-    let d       = dist(boss.x, boss.y, targetX, targetY);
+    let dx = targetX - boss.x;
+    let dy = targetY - boss.y;
+    let d = dist(boss.x, boss.y, targetX, targetY);
 
     if (d < 8) {
-      boss.x          = targetX;
-      boss.y          = targetY;
-      boss.state      = "pausing";
+      boss.x = targetX;
+      boss.y = targetY;
+      boss.state = "pausing";
       boss.pauseTimer = bossData.chargePause;
     } else {
       boss.x += (dx / d) * boss.retreatSpeed;
@@ -640,7 +744,7 @@ function checkBossPlayerCollision() {
   let d = dist(player.x, player.y, boss.x, boss.y);
   if (d < player.r + boss.r - 10) {
     player.health--;
-    player.invincible      = true;
+    player.invincible = true;
     player.invincibleTimer = INVINCIBLE_FRAMES;
     // playerHitSound.play();
 
@@ -661,7 +765,7 @@ function checkEnemyPlayerCollision() {
     let d = dist(player.x, player.y, enemies[i].x, enemies[i].y);
     if (d < player.r + enemies[i].r - 8) {
       player.health--;
-      player.invincible      = true;
+      player.invincible = true;
       player.invincibleTimer = INVINCIBLE_FRAMES;
       // playerHitSound.play();
 
@@ -720,9 +824,12 @@ function drawBoss() {
   let numPoints = 48;
   let wobble = isCharging ? 12 : 8;
   for (let i = 0; i < numPoints; i++) {
-    let angle    = (TWO_PI / numPoints) * i;
-    let noiseVal = noise(cos(angle) * 0.8 + boss.blobT, sin(angle) * 0.8 + boss.blobT);
-    let r        = boss.r + map(noiseVal, 0, 1, -wobble, wobble);
+    let angle = (TWO_PI / numPoints) * i;
+    let noiseVal = noise(
+      cos(angle) * 0.8 + boss.blobT,
+      sin(angle) * 0.8 + boss.blobT,
+    );
+    let r = boss.r + map(noiseVal, 0, 1, -wobble, wobble);
     vertex(boss.x + cos(angle) * r, boss.y + sin(angle) * r);
   }
   endShape(CLOSE);
@@ -754,9 +861,12 @@ function drawEnemies() {
     beginShape();
     let numPoints = 48;
     for (let j = 0; j < numPoints; j++) {
-      let angle    = (TWO_PI / numPoints) * j;
-      let noiseVal = noise(cos(angle) * 0.8 + e.blobT, sin(angle) * 0.8 + e.blobT);
-      let r        = e.r + map(noiseVal, 0, 1, -5, 5);
+      let angle = (TWO_PI / numPoints) * j;
+      let noiseVal = noise(
+        cos(angle) * 0.8 + e.blobT,
+        sin(angle) * 0.8 + e.blobT,
+      );
+      let r = e.r + map(noiseVal, 0, 1, -5, 5);
       vertex(e.x + cos(angle) * r, e.y + sin(angle) * r);
     }
     endShape(CLOSE);
@@ -789,6 +899,11 @@ function drawBullets() {
 function drawPlayer() {
   if (player.invincible && floor(player.invincibleTimer / 6) % 2 === 0) return;
 
+  if (characterSheet) {
+    drawCharacter();
+    return;
+  }
+
   push();
   fill(0, 200, 180);
   noStroke();
@@ -796,9 +911,12 @@ function drawPlayer() {
   beginShape();
   let numPoints = 48;
   for (let i = 0; i < numPoints; i++) {
-    let angle    = (TWO_PI / numPoints) * i;
-    let noiseVal = noise(cos(angle) * 0.8 + player.blobT, sin(angle) * 0.8 + player.blobT);
-    let r        = player.r + map(noiseVal, 0, 1, -6, 6);
+    let angle = (TWO_PI / numPoints) * i;
+    let noiseVal = noise(
+      cos(angle) * 0.8 + player.blobT,
+      sin(angle) * 0.8 + player.blobT,
+    );
+    let r = player.r + map(noiseVal, 0, 1, -6, 6);
     vertex(player.x + cos(angle) * r, player.y + sin(angle) * r);
   }
   endShape(CLOSE);
@@ -811,7 +929,7 @@ function drawPlayer() {
   ellipse(
     player.x + player.direction.x * (player.r - 4),
     player.y + player.direction.y * (player.r - 4),
-    8
+    8,
   );
 
   pop();
@@ -875,7 +993,7 @@ function drawMinimap() {
   stroke(255, 255, 255, 60);
   strokeWeight(1);
   let vp = worldToMap(camX, camY);
-  let vpW = map(width,  0, WORLD_W, 0, MAP_W);
+  let vpW = map(width, 0, WORLD_W, 0, MAP_W);
   let vpH = map(height, 0, WORLD_H, 0, MAP_H);
   rect(vp.x, vp.y, vpW, vpH);
   noStroke();
@@ -906,19 +1024,19 @@ function drawHUD() {
   textAlign(RIGHT);
   text("Score: " + score, width - 16, 28);
 
-  let barW  = 160;
-  let barH  = 14;
-  let barX  = width - barW - 16;
-  let barY  = 40;
+  let barW = 160;
+  let barH = 14;
+  let barX = width - barW - 16;
+  let barY = 40;
   let fillW = map(player.health, 0, player.maxHealth, 0, barW);
 
   fill(40);
   rect(barX, barY, barW, barH, 4);
 
   let healthColour = lerpColor(
-    color(220, 60,  60),
-    color(60,  220, 120),
-    player.health / player.maxHealth
+    color(220, 60, 60),
+    color(60, 220, 120),
+    player.health / player.maxHealth,
   );
   fill(healthColour);
   rect(barX, barY, fillW, barH, 4);
@@ -944,19 +1062,19 @@ function drawHUD() {
 function drawBossHUD() {
   if (!boss) return;
 
-  let barW  = 400;
-  let barH  = 18;
-  let barX  = (width - barW) / 2;
-  let barY  = 10;
+  let barW = 400;
+  let barH = 18;
+  let barX = (width - barW) / 2;
+  let barY = 10;
   let fillW = map(boss.health, 0, boss.maxHealth, 0, barW);
 
   fill(40);
   rect(barX, barY, barW, barH, 4);
 
   let bossColour = lerpColor(
-    color(220, 60,  60),
+    color(220, 60, 60),
     color(255, 150, 30),
-    boss.health / boss.maxHealth
+    boss.health / boss.maxHealth,
   );
   fill(bossColour);
   rect(barX, barY, fillW, barH, 4);
@@ -1022,23 +1140,31 @@ function keyPressed() {
   }
 
   // R — restart
-  if ((key === "r" || key === "R") && gameState !== STATE_PLAY && gameState !== STATE_BOSS) {
+  if (
+    (key === "r" || key === "R") &&
+    gameState !== STATE_PLAY &&
+    gameState !== STATE_BOSS
+  ) {
     gameState = STATE_PLAY;
-    score     = 0;
-    nextWave  = 0;
-    bullets   = [];
-    enemies   = [];
-    boss      = null;
+    score = 0;
+    nextWave = 0;
+    bullets = [];
+    enemies = [];
+    boss = null;
 
-    player.x             = WORLD_W / 2;
-    player.y             = WORLD_H - 200;
-    player.direction     = { x: 0, y: -1 };
-    player.shootTimer    = 0;
-    player.health        = player.maxHealth;
-    player.invincible    = false;
+    player.x = WORLD_W / 2;
+    player.y = WORLD_H - 200;
+    player.direction = { x: 0, y: -1 };
+    player.facing = "up";
+    player.isMoving = false;
+    player.currentFrame = 0;
+    player.frameTimer = 0;
+    player.shootTimer = 0;
+    player.health = player.maxHealth;
+    player.invincible = false;
     player.invincibleTimer = 0;
-    player.bounceVX      = 0;
-    player.bounceVY      = 0;
+    player.bounceVX = 0;
+    player.bounceVY = 0;
 
     camX = player.x - width / 2;
     camY = player.y - height / 2;
