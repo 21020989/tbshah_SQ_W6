@@ -2,11 +2,7 @@
   "waves": [
     {
       "spawnAt": 1600,
-      "enemies": [
-        { "speed": 1.2 },
-        { "speed": 1.2 },
-        { "speed": 1.2 }
-      ]
+      "enemies": [{ "speed": 1.2 }, { "speed": 1.2 }, { "speed": 1.2 }]
     },
     {
       "spawnAt": 1000,
@@ -20,11 +16,11 @@
     {
       "spawnAt": 500,
       "enemies": [
-        { "speed": 1.8 },
-        { "speed": 1.8 },
-        { "speed": 1.8 },
-        { "speed": 1.8 },
-        { "speed": 2.0 }
+        { "speed": 3 },
+        { "speed": 3 },
+        { "speed": 3 },
+        { "speed": 1 },
+        { "speed": 2 }
       ]
     }
   ],

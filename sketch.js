@@ -83,6 +83,7 @@ let enemies = [];
 let obstacleData;
 let obstacles = [];
 let characterSheet = null;
+let worldBackgroundImage = null;
 
 const SPRITE = {
   frameWidth: 230,
@@ -144,15 +145,54 @@ const STATE_OVER = "over";
 let gameState = STATE_PLAY;
 
 // ------------------------------------------------------------
-// SOUNDS — uncomment and fill in paths to add audio
+// SOUNDS — load paths for audio
 // ------------------------------------------------------------
-// let shootSound;
-// let hitSound;
-// let playerHitSound;
-// let bossHitSound;
-// let bossMusic;
-// let winSound;
-// let music;
+let shootSound = null;
+let playerHitSound = null;
+let music = null;
+let audioUnlocked = false;
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  // Try p5 / Web Audio resume methods
+  try {
+    if (typeof getAudioContext === "function") {
+      const ctx = getAudioContext();
+      if (ctx && typeof ctx.resume === "function") {
+        ctx.resume().then(() => {
+          audioUnlocked = true;
+          if (music && typeof music.play === "function") {
+            music.setLoop(true);
+            music.play();
+          }
+        });
+        return;
+      }
+    }
+    if (typeof userStartAudio === "function") {
+      const p = userStartAudio();
+      if (p && typeof p.then === "function") {
+        p.then(() => {
+          audioUnlocked = true;
+          if (music && typeof music.play === "function") {
+            music.setLoop(true);
+            music.play();
+          }
+        }).catch(() => {});
+        return;
+      }
+    }
+  } catch (e) {}
+
+  // Fallback: mark unlocked and try to play
+  audioUnlocked = true;
+  try {
+    if (music && typeof music.play === "function") {
+      music.setLoop(true);
+      music.play();
+    }
+  } catch (e) {}
+}
 
 // ============================================================
 // preload()
@@ -170,16 +210,10 @@ function preloadCharacter(path) {
 function preload() {
   enemyData = loadJSON("data/enemies.json");
   obstacleData = loadJSON("data/obstacles.json");
-  preloadCharacter("assets/images/player.png");
+  preloadCharacter("assets/images/Player.png");
+  worldBackgroundImage = loadImage("assets/images/background.png");
 
-  // Uncomment to load sounds:
-  // shootSound     = loadSound("assets/sounds/shoot.wav");
-  // hitSound       = loadSound("assets/sounds/hit.wav");
-  // playerHitSound = loadSound("assets/sounds/playerhit.wav");
-  // bossHitSound   = loadSound("assets/sounds/bosshit.wav");
-  // bossMusic      = loadSound("assets/sounds/bossmusic.mp3");
-  // winSound       = loadSound("assets/sounds/win.wav");
-  // music          = loadSound("assets/sounds/music.mp3");
+  // Sound files are loaded asynchronously in setup() to avoid blocking preload
 }
 
 // ============================================================
@@ -212,15 +246,70 @@ function setup() {
   camX = player.x - width / 2;
   camY = player.y - height / 2;
 
-  // Uncomment to start music:
-  // music.loop();
+  // Start background music if it loaded
+  if (music && typeof music.play === "function") {
+    music.setLoop(true);
+    music.play();
+  }
+
+  // Load sound files asynchronously (non-blocking)
+  try {
+    loadSound(
+      "assets/sounds/shoot.wav",
+      (s) => {
+        shootSound = s;
+        console.log("Loaded shoot.wav");
+      },
+      () => {
+        shootSound = null;
+        console.warn("Failed to load shoot.wav");
+      },
+    );
+  } catch (e) {
+    shootSound = null;
+  }
+  try {
+    loadSound(
+      "assets/sounds/player_hit.wav",
+      (s) => {
+        playerHitSound = s;
+        console.log("Loaded player_hit.wav");
+      },
+      () => {
+        playerHitSound = null;
+        console.warn("Failed to load player_hit.wav");
+      },
+    );
+  } catch (e) {
+    playerHitSound = null;
+  }
+  try {
+    loadSound(
+      "assets/sounds/music.wav",
+      (s) => {
+        music = s; /* do not autoplay; wait for user gesture */
+        console.log("Loaded music.wav");
+        if (audioUnlocked && music && typeof music.play === "function") {
+          music.setLoop(true);
+          music.play();
+          console.log("Auto-started music after unlock");
+        }
+      },
+      () => {
+        music = null;
+        console.warn("Failed to load music.wav");
+      },
+    );
+  } catch (e) {
+    music = null;
+  }
 }
 
 // ============================================================
 // draw()
 // ============================================================
 function draw() {
-  background(20);
+  background(17);
 
   updateCamera();
 
@@ -379,7 +468,7 @@ function checkObstaclePlayerCollision() {
         player.bounceVY = (dy / len) * 8;
       }
 
-      // playerHitSound.play();
+      // playPlayerHitSound();
 
       if (player.health <= 0) {
         gameState = STATE_OVER;
@@ -412,6 +501,14 @@ function applyBounce() {
 // Only shapes near the camera are drawn for performance.
 // ------------------------------------------------------------
 function drawBackground() {
+  if (worldBackgroundImage) {
+    image(worldBackgroundImage, 0, 0, WORLD_W, WORLD_H);
+  } else {
+    noStroke();
+    fill(20, 30, 60);
+    rect(0, 0, WORLD_W, WORLD_H);
+  }
+
   noStroke();
   for (let i = 0; i < bgShapes.length; i++) {
     let s = bgShapes[i];
@@ -517,7 +614,11 @@ function handleInput() {
       vy: player.direction.y * BULLET_SPEED,
     });
     player.shootTimer = SHOOT_COOLDOWN;
-    // shootSound.play();
+    if (shootSound && typeof shootSound.play === "function") {
+      shootSound.play();
+    } else {
+      console.warn("shootSound not available");
+    }
   }
 }
 
@@ -746,7 +847,8 @@ function checkBossPlayerCollision() {
     player.health--;
     player.invincible = true;
     player.invincibleTimer = INVINCIBLE_FRAMES;
-    // playerHitSound.play();
+    if (playerHitSound && typeof playerHitSound.play === "function")
+      playerHitSound.play();
 
     if (player.health <= 0) {
       gameState = STATE_OVER;
@@ -767,7 +869,8 @@ function checkEnemyPlayerCollision() {
       player.health--;
       player.invincible = true;
       player.invincibleTimer = INVINCIBLE_FRAMES;
-      // playerHitSound.play();
+      if (playerHitSound && typeof playerHitSound.play === "function")
+        playerHitSound.play();
 
       if (player.health <= 0) {
         gameState = STATE_OVER;
@@ -1138,6 +1241,9 @@ function keyPressed() {
     player.y = BOSS_ZONE_Y - 10;
     if (!boss) spawnBoss();
   }
+
+  // unlock audio on first user keypress
+  unlockAudio();
 
   // R — restart
   if (
